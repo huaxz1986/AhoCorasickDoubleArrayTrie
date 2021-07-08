@@ -19,6 +19,8 @@
  */
 
 import com.hankcs.algorithm.AhoCorasickDoubleArrayTrie;
+import com.hankcs.algorithm.AhoCorasickDoubleArrayTrie.Hit;
+
 import junit.framework.TestCase;
 import org.ahocorasick.trie.Trie;
 
@@ -65,13 +67,41 @@ public class TestAhoCorasickDoubleArrayTrie extends TestCase
             }
         });
         // Or simply use
-        List<AhoCorasickDoubleArrayTrie<String>.Hit<String>> wordList = acdat.parseText(text);
+        List<AhoCorasickDoubleArrayTrie.Hit<String>> wordList = acdat.parseText(text);
         System.out.println(wordList);
     }
+
     public void testBuildAndParseSimply() throws Exception
     {
         AhoCorasickDoubleArrayTrie<String> acdat = buildASimpleAhoCorasickDoubleArrayTrie();
         validateASimpleAhoCorasickDoubleArrayTrie(acdat);
+    }
+
+    public void testBuildVeryLongWord() throws Exception
+    {
+        TreeMap<String, String> map = new TreeMap<String, String>();
+
+        int longWordLength = 20000;
+
+        String word = loadText("cn/text.txt");
+        map.put(word.substring(10, longWordLength), word.substring(10, longWordLength));
+        map.put(word.substring(30, 40), null);
+
+        word = loadText("en/text.txt");
+        map.put(word.substring(10, longWordLength), word.substring(10, longWordLength));
+        map.put(word.substring(30, 40), null);
+
+        // Build an AhoCorasickDoubleArrayTrie
+        AhoCorasickDoubleArrayTrie<String> acdat = new AhoCorasickDoubleArrayTrie<String>();
+        acdat.build(map);
+        
+        List<Hit<String>> result = acdat.parseText(word);
+        
+        assertEquals(2, result.size());
+        assertEquals(30, result.get(0).begin);
+        assertEquals(40, result.get(0).end);
+        assertEquals(10, result.get(1).begin);
+        assertEquals(longWordLength, result.get(1).end);
     }
 
     public void testBuildAndParseWithBigFile() throws Exception
@@ -99,6 +129,103 @@ public class TestAhoCorasickDoubleArrayTrie extends TestCase
                 assertEquals(text.substring(begin, end), value);
             }
         });
+    }
+
+    private static class CountHits implements AhoCorasickDoubleArrayTrie.IHitCancellable<String>
+    {
+        private int count;
+        private boolean countAll;
+
+        CountHits(boolean countAll)
+        {
+            this.count = 0;
+            this.countAll = countAll;
+        }
+
+        public int getCount()
+        {
+            return count;
+        }
+
+        @Override
+        public boolean hit(int begin, int end, String value)
+        {
+            count += 1;
+            return countAll;
+        }
+    }
+
+    public void testMatches()
+    {
+        Map<String, Integer> map = new HashMap<String, Integer>();
+        map.put("space", 1);
+        map.put("keyword", 2);
+        map.put("ch", 3);
+        AhoCorasickDoubleArrayTrie<Integer> trie = new AhoCorasickDoubleArrayTrie<Integer>();
+        trie.build(map);
+
+        assertTrue(trie.matches("space"));
+        assertTrue(trie.matches("keyword"));
+        assertTrue(trie.matches("ch"));
+        assertTrue(trie.matches("  ch"));
+        assertTrue(trie.matches("chkeyword"));
+        assertTrue(trie.matches("oooospace2"));
+        assertFalse(trie.matches("c"));
+        assertFalse(trie.matches(""));
+        assertFalse(trie.matches("spac"));
+        assertFalse(trie.matches("nothing"));
+    }
+
+    public void testFirstMatch()
+    {
+        Map<String, Integer> map = new HashMap<String, Integer>();
+        map.put("space", 1);
+        map.put("keyword", 2);
+        map.put("ch", 3);
+        AhoCorasickDoubleArrayTrie<Integer> trie = new AhoCorasickDoubleArrayTrie<Integer>();
+        trie.build(map);
+
+        AhoCorasickDoubleArrayTrie.Hit<Integer> hit = trie.findFirst("space");
+        assertEquals(0, hit.begin);
+        assertEquals(5, hit.end);
+        assertEquals(1, hit.value.intValue());
+
+        hit = trie.findFirst("a lot of garbage in the space ch");
+        assertEquals(24, hit.begin);
+        assertEquals(29, hit.end);
+        assertEquals(1, hit.value.intValue());
+
+        assertNull(trie.findFirst(""));
+        assertNull(trie.findFirst("value"));
+        assertNull(trie.findFirst("keywork"));
+        assertNull(trie.findFirst(" no pace"));
+    }
+
+    public void testCancellation() throws Exception
+    {
+        // Collect test data set
+        TreeMap<String, String> map = new TreeMap<String, String>();
+        String[] keyArray = new String[]
+                {
+                        "foo",
+                        "bar"
+                };
+        for (String key : keyArray)
+        {
+            map.put(key, key);
+        }
+        // Build an AhoCorasickDoubleArrayTrie
+        AhoCorasickDoubleArrayTrie<String> acdat = new AhoCorasickDoubleArrayTrie<String>();
+        acdat.build(map);
+        // count matches
+        String haystack = "sfwtfoowercwbarqwrcq";
+        CountHits cancellingMatcher = new CountHits(false);
+        CountHits countingMatcher = new CountHits(true);
+        System.out.println("Testing cancellation");
+        acdat.parseText(haystack, cancellingMatcher);
+        acdat.parseText(haystack, countingMatcher);
+        assertEquals(cancellingMatcher.count, 1);
+        assertEquals(countingMatcher.count, 2);
     }
 
     private String loadText(String path) throws IOException
@@ -174,6 +301,7 @@ public class TestAhoCorasickDoubleArrayTrie extends TestCase
      * Compare my AhoCorasickDoubleArrayTrie with robert-bor's aho-corasick, notice that robert-bor's aho-corasick is
      * compiled under jdk1.8, so you will need jdk1.8 to run this test<br>
      * To avoid JVM wasting time on allocating memory, please use -Xms512m -Xmx512m -Xmn256m .
+     *
      * @throws Exception
      */
     public void testBenchmark() throws Exception
@@ -194,5 +322,13 @@ public class TestAhoCorasickDoubleArrayTrie extends TestCase
         ObjectInputStream in = new ObjectInputStream(new FileInputStream(tmpPath));
         acdat = (AhoCorasickDoubleArrayTrie<String>) in.readObject();
         validateASimpleAhoCorasickDoubleArrayTrie(acdat);
+    }
+
+    public void testBuildEmptyTrie()
+    {
+        AhoCorasickDoubleArrayTrie<String> acdat = new AhoCorasickDoubleArrayTrie<String>();
+        TreeMap<String, String> map = new TreeMap<String, String>();
+        acdat.build(map);
+        assertEquals(0, acdat.size());
     }
 }
